@@ -89,6 +89,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "CREATE TABLE IF NOT EXISTS users ("
             "email TEXT PRIMARY KEY, salt BLOB NOT NULL, password_hash BLOB NOT NULL)"
         )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS user_profiles ("
+            "email TEXT PRIMARY KEY, display_name TEXT NOT NULL DEFAULT '')"
+        )
         connection.commit()
         try:
             (data_dir / "accounts.sqlite3").chmod(0o600)
@@ -230,11 +234,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/session":
             email = self._session_email()
+            display_name = ""
+            if email:
+                with self._database() as connection:
+                    row = connection.execute(
+                        "SELECT display_name FROM user_profiles WHERE email = ?", (email,)
+                    ).fetchone()
+                display_name = row[0] if row and row[0] else ""
             self._json(
                 200,
                 {
                     "authenticated": email is not None,
                     "email": email,
+                    "display_name": display_name,
                     "role": "Super administrator" if email == ADMIN_EMAIL else "Member",
                 },
             )
@@ -255,10 +267,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._serve_file("jhive-logo.png", "image/png")
             return
         if self.path == "/favicon.png":
-            self._serve_file("jhive-logo.png", "image/png")
+            self._serve_file("favicon.png", "image/png")
             return
         if self.path == "/favicon.ico":
-            self._serve_file("jhive-logo.png", "image/png")
+            self._serve_file("favicon.png", "image/png")
             return
         else:
             self.send_error(404)
@@ -311,6 +323,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json(401, {"error": "That code is invalid or expired."})
                 return
             self._json(200, {"ok": True, "email": email}, {"Set-Cookie": self._start_session(email)})
+            return
+
+        if self.path == "/api/profile":
+            email = self._session_email()
+            if not email:
+                self._json(401, {"error": "Sign in to update your profile."})
+                return
+            payload = self._read_json()
+            display_name = str(payload.get("display_name", "")).strip() if payload else ""
+            if not 2 <= len(display_name) <= 60:
+                self._json(400, {"error": "Enter a display name between 2 and 60 characters."})
+                return
+            with self._database() as connection:
+                connection.execute(
+                    "INSERT INTO user_profiles (email, display_name) VALUES (?, ?) "
+                    "ON CONFLICT(email) DO UPDATE SET display_name = excluded.display_name",
+                    (email, display_name),
+                )
+                connection.commit()
+            self._json(200, {"ok": True, "display_name": display_name})
             return
 
         if self.path == "/api/logout":
