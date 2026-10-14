@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import hmac
 import json
+import os
 import secrets
+import smtplib
+import ssl
 import sqlite3
 import threading
 import time
+import urllib.parse
+import urllib.request
+from email.message import EmailMessage
 from collections.abc import Iterator
 from contextlib import contextmanager
 from http.cookies import SimpleCookie
@@ -27,6 +34,46 @@ class DashboardHandler(BaseHTTPRequestHandler):
     session_lock = threading.Lock()
     session_lifetime = 12 * 60 * 60
     admin_codes: dict[str, tuple[str, float, int, float]] = {}
+    email_codes: dict[str, tuple[str, float, int, float]] = {}
+    oauth_states: dict[str, tuple[str, float, str, str]] = {}
+
+    @staticmethod
+    def _setting(name: str, default: str = "") -> str:
+        return os.environ.get(name, default).strip()
+
+    @classmethod
+    def _provider_config(cls, provider: str) -> tuple[str, str, str, str] | None:
+        key = provider.upper()
+        client_id = cls._setting(f"JHIVE_{key}_CLIENT_ID")
+        client_secret = cls._setting(f"JHIVE_{key}_CLIENT_SECRET")
+        if not client_id or not client_secret:
+            return None
+        if provider == "google":
+            return (client_id, client_secret, "https://accounts.google.com/o/oauth2/v2/auth", "https://oauth2.googleapis.com/token")
+        if provider == "microsoft":
+            return (client_id, client_secret, "https://login.microsoftonline.com/common/oauth2/v2.0/authorize", "https://login.microsoftonline.com/common/oauth2/v2.0/token")
+        return None
+
+    @classmethod
+    def _email_ready(cls) -> bool:
+        return bool(cls._setting("JHIVE_SMTP_HOST") and cls._setting("JHIVE_SMTP_FROM"))
+
+    @classmethod
+    def _send_email_code(cls, email: str, code: str) -> None:
+        message = EmailMessage()
+        message["Subject"] = "Your JHive sign-in code"
+        message["From"] = cls._setting("JHIVE_SMTP_FROM")
+        message["To"] = email
+        message.set_content(f"Your JHive sign-in code is {code}. It expires in 10 minutes.")
+        host = cls._setting("JHIVE_SMTP_HOST")
+        port = int(cls._setting("JHIVE_SMTP_PORT", "587"))
+        with smtplib.SMTP(host, port, timeout=15) as server:
+            if cls._setting("JHIVE_SMTP_STARTTLS", "true").lower() == "true":
+                server.starttls(context=ssl.create_default_context())
+            username = cls._setting("JHIVE_SMTP_USER")
+            if username:
+                server.login(username, cls._setting("JHIVE_SMTP_PASSWORD"))
+            server.send_message(message)
 
     @staticmethod
     @contextmanager
@@ -108,8 +155,80 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _oauth_callback(self, provider: str, query: dict[str, list[str]]) -> None:
+        state = query.get("state", [""])[0]
+        code = query.get("code", [""])[0]
+        with self.session_lock:
+            challenge = self.oauth_states.pop(state, None)
+        if not challenge or challenge[0] != provider or challenge[2] < time.time() or not code:
+            self._redirect("/?error=signin")
+            return
+        _, _, redirect_uri, code_verifier = challenge
+        config = self._provider_config(provider)
+        if not config:
+            self._redirect("/?error=setup")
+            return
+        client_id, client_secret, _, token_url = config
+        try:
+            token_body = urllib.parse.urlencode({"client_id": client_id, "client_secret": client_secret,
+                "code": code, "grant_type": "authorization_code", "redirect_uri": redirect_uri,
+                "code_verifier": code_verifier}).encode()
+            request = urllib.request.Request(token_url, data=token_body, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(request, timeout=15) as response:
+                access_token = json.loads(response.read()).get("access_token")
+            if not access_token:
+                raise ValueError("No access token")
+            user_url = "https://openidconnect.googleapis.com/v1/userinfo" if provider == "google" else "https://graph.microsoft.com/oidc/userinfo"
+            request = urllib.request.Request(user_url, headers={"Authorization": f"Bearer {access_token}"})
+            with urllib.request.urlopen(request, timeout=15) as response:
+                profile = json.loads(response.read())
+            email = str(profile.get("email") or profile.get("preferred_username") or "").strip().lower()
+            if not email or "@" not in email or profile.get("email_verified") is False:
+                raise ValueError("Provider did not return a verified email")
+        except Exception as exc:
+            print(f"JHive {provider} sign-in failed: {type(exc).__name__}")
+            self._redirect("/?error=signin")
+            return
+        self._redirect_with_cookie("/dashboard", self._start_session(email))
+
+    def _redirect_with_cookie(self, location: str, cookie: str) -> None:
+        self.send_response(303)
+        self.send_header("Location", location)
+        self.send_header("Set-Cookie", cookie)
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-        if self.path == "/api/session":
+        parsed = urllib.parse.urlsplit(self.path)
+        if parsed.path == "/api/auth-options":
+            self._json(200, {"google": self._provider_config("google") is not None,
+                "microsoft": self._provider_config("microsoft") is not None, "email": self._email_ready()})
+            return
+        if parsed.path in {"/auth/google", "/auth/microsoft"}:
+            provider = parsed.path.rsplit("/", 1)[-1]
+            config = self._provider_config(provider)
+            if not config:
+                self._redirect("/?error=setup")
+                return
+            client_id, _, auth_url, _ = config
+            base = self._setting("JHIVE_BASE_URL", "http://127.0.0.1:8765").rstrip("/")
+            redirect_uri = f"{base}/auth/{provider}/callback"
+            state = secrets.token_urlsafe(32)
+            verifier = secrets.token_urlsafe(48)
+            challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+            with self.session_lock:
+                self.oauth_states[state] = (provider, time.time() + 300, redirect_uri, verifier)
+            scopes = "openid email profile" + (" User.Read" if provider == "microsoft" else "")
+            params = {"client_id": client_id, "response_type": "code", "redirect_uri": redirect_uri,
+                "response_mode": "query", "scope": scopes, "state": state, "nonce": secrets.token_urlsafe(24),
+                "code_challenge": challenge, "code_challenge_method": "S256"}
+            self._redirect(auth_url + "?" + urllib.parse.urlencode(params))
+            return
+        if parsed.path in {"/auth/google/callback", "/auth/microsoft/callback"}:
+            self._oauth_callback(parsed.path.split("/")[2], urllib.parse.parse_qs(parsed.query))
+            return
+        if parsed.path == "/api/session":
             email = self._session_email()
             self._json(
                 200,
@@ -145,6 +264,55 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        if self.path == "/api/email-code":
+            payload = self._read_json()
+            email = str(payload.get("email", "")).strip().lower() if payload else ""
+            if len(email) > 254 or "@" not in email or email.startswith("@") or email.endswith("@"):
+                self._json(400, {"error": "Enter a valid email address."})
+                return
+            if not self._email_ready():
+                self._json(503, {"error": "Email sign-in needs SMTP settings in your local .env file."})
+                return
+            now = time.time()
+            with self.session_lock:
+                existing = self.email_codes.get(email)
+                if existing and existing[3] > now:
+                    self._json(429, {"error": "Wait a minute before requesting another code."})
+                    return
+                code = f"{secrets.randbelow(1_000_000):06d}"
+                self.email_codes[email] = (code, now + 600, 0, now + 60)
+            try:
+                self._send_email_code(email, code)
+            except Exception as exc:
+                with self.session_lock:
+                    self.email_codes.pop(email, None)
+                print(f"JHive email delivery failed: {type(exc).__name__}")
+                self._json(503, {"error": "JHive could not send the sign-in email. Check SMTP settings."})
+                return
+            self._json(200, {"ok": True, "message": "Check your email for a six-digit sign-in code."})
+            return
+
+        if self.path == "/api/email-verify":
+            payload = self._read_json()
+            email = str(payload.get("email", "")).strip().lower() if payload else ""
+            code = str(payload.get("code", "")).strip() if payload else ""
+            now = time.time()
+            with self.session_lock:
+                challenge = self.email_codes.get(email)
+                valid = bool(challenge and challenge[1] > now and challenge[2] < 5 and hmac.compare_digest(code, challenge[0]))
+                if valid:
+                    self.email_codes.pop(email, None)
+                elif challenge:
+                    if challenge[1] <= now or challenge[2] + 1 >= 5:
+                        self.email_codes.pop(email, None)
+                    else:
+                        self.email_codes[email] = (challenge[0], challenge[1], challenge[2] + 1, challenge[3])
+            if not valid:
+                self._json(401, {"error": "That code is invalid or expired."})
+                return
+            self._json(200, {"ok": True, "email": email}, {"Set-Cookie": self._start_session(email)})
+            return
+
         if self.path == "/api/logout":
             cookie = SimpleCookie(self.headers.get("Cookie", ""))
             morsel = cookie.get("jhive_session")
@@ -248,6 +416,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     """Start the dashboard on loopback so it is only available on this computer."""
+    env_file = Path.cwd() / ".env"
+    if env_file.is_file():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            name, value = line.split("=", 1)
+            os.environ.setdefault(name.strip(), value.strip().strip("\"'"))
     parser = argparse.ArgumentParser(description="Run the local JHive demo dashboard")
     parser.add_argument("--host", default="127.0.0.1", help="Bind address (default: loopback only)")
     parser.add_argument("--port", type=int, default=8765, help="Port (default: 8765)")
