@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jhive"
+version = "0.1.0"
+description = "A Python-first, simulation-focused trading intelligence system."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Proprietary"}
+authors = [{name = "JHive contributors"}]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9", "ruff>=0.6,<1"]
+data = ["numpy>=1.26,<3", "pandas>=2.2,<3", "scikit-learn>=1.5,<2"]
+api = ["fastapi>=0.115,<1", "uvicorn[standard]>=0.30,<1"]
+database = ["sqlalchemy>=2.0,<3"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[project.scripts]
+jhive = "jhive.main:main"

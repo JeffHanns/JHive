@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "JHive: run module",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "jhive.main",
+      "justMyCode": true,
+      "env": {"PYTHONPATH": "${workspaceFolder}/src"}
+    }
+  ]
+}
