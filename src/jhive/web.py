@@ -52,6 +52,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return (client_id, client_secret, "https://accounts.google.com/o/oauth2/v2/auth", "https://oauth2.googleapis.com/token")
         if provider == "microsoft":
             return (client_id, client_secret, "https://login.microsoftonline.com/common/oauth2/v2.0/authorize", "https://login.microsoftonline.com/common/oauth2/v2.0/token")
+        if provider == "github":
+            return (client_id, client_secret, "https://github.com/login/oauth/authorize", "https://github.com/login/oauth/access_token")
         return None
 
     @classmethod
@@ -182,12 +184,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 access_token = json.loads(response.read()).get("access_token")
             if not access_token:
                 raise ValueError("No access token")
-            user_url = "https://openidconnect.googleapis.com/v1/userinfo" if provider == "google" else "https://graph.microsoft.com/oidc/userinfo"
-            request = urllib.request.Request(user_url, headers={"Authorization": f"Bearer {access_token}"})
-            with urllib.request.urlopen(request, timeout=15) as response:
-                profile = json.loads(response.read())
-            email = str(profile.get("email") or profile.get("preferred_username") or "").strip().lower()
-            if not email or "@" not in email or profile.get("email_verified") is False:
+            if provider == "github":
+                request = urllib.request.Request("https://api.github.com/user/emails", headers={
+                    "Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json",
+                    "User-Agent": "JHive"})
+                with urllib.request.urlopen(request, timeout=15) as response:
+                    addresses = json.loads(response.read())
+                email = next((str(item.get("email", "")).strip().lower() for item in addresses
+                    if item.get("primary") and item.get("verified")), "")
+            else:
+                user_url = "https://openidconnect.googleapis.com/v1/userinfo" if provider == "google" else "https://graph.microsoft.com/oidc/userinfo"
+                request = urllib.request.Request(user_url, headers={"Authorization": f"Bearer {access_token}"})
+                with urllib.request.urlopen(request, timeout=15) as response:
+                    profile = json.loads(response.read())
+                email = str(profile.get("email") or profile.get("preferred_username") or "").strip().lower()
+                if profile.get("email_verified") is False:
+                    email = ""
+            if not email or "@" not in email:
                 raise ValueError("Provider did not return a verified email")
         except Exception as exc:
             print(f"JHive {provider} sign-in failed: {type(exc).__name__}")
@@ -207,9 +220,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlsplit(self.path)
         if parsed.path == "/api/auth-options":
             self._json(200, {"google": self._provider_config("google") is not None,
-                "microsoft": self._provider_config("microsoft") is not None, "email": self._email_ready()})
+                "github": self._provider_config("github") is not None,
+                "microsoft": self._provider_config("microsoft") is not None, "apple": False,
+                "email": self._email_ready()})
             return
-        if parsed.path in {"/auth/google", "/auth/microsoft"}:
+        if parsed.path in {"/auth/google", "/auth/github", "/auth/microsoft"}:
             provider = parsed.path.rsplit("/", 1)[-1]
             config = self._provider_config(provider)
             if not config:
@@ -223,13 +238,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
             with self.session_lock:
                 self.oauth_states[state] = (provider, time.time() + 300, redirect_uri, verifier)
-            scopes = "openid email profile" + (" User.Read" if provider == "microsoft" else "")
+            scopes = "user:email" if provider == "github" else "openid email profile" + (" User.Read" if provider == "microsoft" else "")
             params = {"client_id": client_id, "response_type": "code", "redirect_uri": redirect_uri,
                 "response_mode": "query", "scope": scopes, "state": state, "nonce": secrets.token_urlsafe(24),
                 "code_challenge": challenge, "code_challenge_method": "S256"}
             self._redirect(auth_url + "?" + urllib.parse.urlencode(params))
             return
-        if parsed.path in {"/auth/google/callback", "/auth/microsoft/callback"}:
+        if parsed.path in {"/auth/google/callback", "/auth/github/callback", "/auth/microsoft/callback"}:
             self._oauth_callback(parsed.path.split("/")[2], urllib.parse.parse_qs(parsed.query))
             return
         if parsed.path == "/api/session":
@@ -403,6 +418,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         email = str(payload.get("email", "")).strip().lower()
         password = str(payload.get("password", ""))
+        display_name = str(payload.get("display_name", "")).strip()
         if len(email) > 254 or "@" not in email or email.startswith("@") or email.endswith("@"):
             self._json(400, {"error": "Enter a valid email address."})
             return
@@ -413,6 +429,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if len(password) < 12:
                 self._json(400, {"error": "Use a password with at least 12 characters."})
                 return
+            if display_name and not 2 <= len(display_name) <= 60:
+                self._json(400, {"error": "Display name must be between 2 and 60 characters."})
+                return
             salt = secrets.token_bytes(16)
             password_hash = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 310_000)
             try:
@@ -421,6 +440,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "INSERT INTO users (email, salt, password_hash) VALUES (?, ?, ?)",
                         (email, salt, password_hash),
                     )
+                    if display_name:
+                        connection.execute(
+                            "INSERT INTO user_profiles (email, display_name) VALUES (?, ?)",
+                            (email, display_name),
+                        )
                     connection.commit()
             except sqlite3.IntegrityError:
                 self._json(409, {"error": "An account already exists for that email."})
