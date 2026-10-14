@@ -49,12 +49,15 @@ Never commit `.env`, credentials, account identifiers, private keys, local datab
 
 Reconnect and mount the `Untitled` drive before opening this workspace. Open the inner `JHive` folder, not the outer container. GitHub can restore pushed commits, but uncommitted work may be lost if the drive fails.
 
-## Current runnable entry point
+## Local dashboard
 
-After installing with a supported Python interpreter, run:
+Start the local dashboard from the project directory:
 
 ```bash
-jhive
+source .venv/bin/activate
+jhive-dashboard
 ```
 
-The development startup only logs that live market data and trading are disabled. Market features will be added in later milestones.
+Then open [http://127.0.0.1:8765](http://127.0.0.1:8765). Stop the server with `Ctrl+C`. In VS Code, you can also run `python -m jhive.web` in the integrated terminal.
+
+The dashboard is a local-only interface preview. Portfolio, watchlist, chart, and strategy figures are illustrative sample data; no exchange, broker, or live market feed is connected, and the app cannot place orders.
