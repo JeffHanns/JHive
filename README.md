@@ -60,4 +60,6 @@ jhive-dashboard
 
 Then open [http://127.0.0.1:8765](http://127.0.0.1:8765). Stop the server with `Ctrl+C`. In VS Code, you can also run `python -m jhive.web` in the integrated terminal.
 
-The dashboard is a local-only interface preview. Portfolio, watchlist, chart, and strategy figures are illustrative sample data; no exchange, broker, or live market feed is connected, and the app cannot place orders.
+The app opens at a local sign-in page. Create an account on first use; passwords must be at least 12 characters. Account records and salted password hashes are stored locally in `~/.jhive/accounts.sqlite3`. Login sessions expire after 12 hours and when the server stops. The server binds to `127.0.0.1` by default.
+
+The dashboard is currently a paper-account interface preview. Replace its fixed portfolio, watchlist, chart, and strategy figures with account-specific data before using it to guide decisions. No broker integration or order placement is implemented.
