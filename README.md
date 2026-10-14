@@ -8,20 +8,20 @@ Milestone 1 foundation is in progress. See [docs/PROJECT_STATUS.md](docs/PROJECT
 
 ## Requirements
 
-Python 3.10 or newer is required by the project configuration. The inspected Mac currently has Python 3.9.6, which is too old; install a supported Python version before creating the project virtual environment. Git is required for version control.
+Python 3.10 or newer is required. This Mac now has a project-compatible Python 3.10.22 build at `~/.local/opt/python-3.10.22/bin/python3.10`. Python 3.10.22 is the final 3.10 release and is end of life; plan to move to a supported Python series after validating dependency compatibility. Git is required for version control.
 
 ## Setup
 
 From this inner project directory:
 
 ```bash
-python3.11 -m venv .venv
+~/.local/opt/python-3.10.22/bin/python3.10 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e '.[dev,data,api,database]'
 ```
 
-The default configuration has no broker credentials and cannot submit live-money orders. Keep real secrets in a local `.env` file, which Git ignores. `.env.example` contains placeholders only.
+The virtual environment is ignored by Git and must be recreated on another machine. The local Python build is not part of the repository. The default configuration has no broker credentials and cannot submit live-money orders. Keep real secrets in a local `.env` file, which Git ignores. `.env.example` contains placeholders only.
 
 ## Layout
 
