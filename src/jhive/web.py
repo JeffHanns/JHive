@@ -340,6 +340,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True, "email": email}, {"Set-Cookie": self._start_session(email)})
             return
 
+        if self.path == "/api/admin-password":
+            email = self._session_email()
+            if email != ADMIN_EMAIL:
+                self._json(403, {"error": "Administrator access is required to set this password."})
+                return
+            payload = self._read_json()
+            password = str(payload.get("password", "")) if payload else ""
+            if not 12 <= len(password) <= 128:
+                self._json(400, {"error": "Use a password between 12 and 128 characters."})
+                return
+            salt = secrets.token_bytes(16)
+            password_hash = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 310_000)
+            with self._database() as connection:
+                connection.execute(
+                    "INSERT INTO users (email, salt, password_hash) VALUES (?, ?, ?) "
+                    "ON CONFLICT(email) DO UPDATE SET salt = excluded.salt, "
+                    "password_hash = excluded.password_hash",
+                    (email, salt, password_hash),
+                )
+                connection.commit()
+            self._json(200, {"ok": True, "message": "Administrator password saved."})
+            return
+
         if self.path == "/api/profile":
             email = self._session_email()
             if not email:
@@ -450,9 +473,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json(409, {"error": "An account already exists for that email."})
                 return
         else:
-            if email == ADMIN_EMAIL:
-                self._json(401, {"error": "Use administrator sign-in for this account."})
-                return
             with self._database() as connection:
                 row = connection.execute(
                     "SELECT salt, password_hash FROM users WHERE email = ?", (email,)
