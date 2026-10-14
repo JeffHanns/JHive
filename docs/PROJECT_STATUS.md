@@ -31,7 +31,7 @@ Milestone 1: project foundation and GitHub integration.
 ## Tests executed
 
 - Filesystem, Git version, Python version, and VS Code installation/workspace checks.
-- No test runner is installed in the inspected system Python, so the new pytest smoke test has not been run.
+- The startup command was executed successfully with `PYTHONPATH=src python3 -m jhive.main`. The new pytest smoke test has not been run because pytest is not installed.
 
 ## Next action
 
