@@ -11,12 +11,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
     """Serve the bundled dashboard from a local-only development server."""
 
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-        if self.path not in {"/", "/index.html"}:
+        assets = {
+            "/": ("dashboard.html", "text/html; charset=utf-8"),
+            "/index.html": ("dashboard.html", "text/html; charset=utf-8"),
+            "/jhive-logo.png": ("jhive-logo.png", "image/png"),
+        }
+        asset = assets.get(self.path)
+        if asset is None:
             self.send_error(404)
             return
-        body = (Path(__file__).parent / "static" / "dashboard.html").read_bytes()
+        filename, content_type = asset
+        body = (Path(__file__).parent / "static" / filename).read_bytes()
         self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()

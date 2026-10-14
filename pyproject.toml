@@ -34,4 +34,4 @@ jhive = "jhive.main:main"
 jhive-dashboard = "jhive.web:main"
 
 [tool.setuptools.package-data]
-jhive = ["static/*.html"]
+jhive = ["static/*"]
