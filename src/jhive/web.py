@@ -17,12 +17,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
+ADMIN_EMAIL = "jeffhanns.cilzikmusic@gmail.com"
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     """Serve the bundled dashboard from a local-only development server."""
 
     sessions: dict[str, tuple[str, float]] = {}
     session_lock = threading.Lock()
     session_lifetime = 12 * 60 * 60
+    admin_codes: dict[str, tuple[str, float, int, float]] = {}
 
     @staticmethod
     @contextmanager
@@ -107,7 +111,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         if self.path == "/api/session":
             email = self._session_email()
-            self._json(200, {"authenticated": email is not None, "email": email})
+            self._json(
+                200,
+                {
+                    "authenticated": email is not None,
+                    "email": email,
+                    "role": "Super administrator" if email == ADMIN_EMAIL else "Member",
+                },
+            )
             return
         if self.path in {"/", "/index.html"}:
             if self._session_email():
@@ -124,6 +135,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if self.path == "/jhive-logo.png":
             self._serve_file("jhive-logo.png", "image/png")
             return
+        if self.path == "/favicon.png":
+            self._serve_file("jhive-logo.png", "image/png")
+            return
         else:
             self.send_error(404)
 
@@ -135,6 +149,46 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 with self.session_lock:
                     self.sessions.pop(morsel.value, None)
             self._json(200, {"ok": True}, {"Set-Cookie": "jhive_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"})
+            return
+
+        if self.path == "/api/admin-code":
+            payload = self._read_json()
+            email = str(payload.get("email", "")).strip().lower() if payload else ""
+            if email != ADMIN_EMAIL:
+                self._json(404, {"error": "Admin sign-in is unavailable for this email."})
+                return
+            now = time.time()
+            with self.session_lock:
+                current = self.admin_codes.get(email)
+                if current and current[3] > now:
+                    self._json(429, {"error": "Wait a minute before requesting another code."})
+                    return
+                code = f"{secrets.randbelow(1_000_000):06d}"
+                self.admin_codes[email] = (code, now + 300, 0, now + 60)
+            print(f"JHive admin sign-in code for {email}: {code} (expires in 5 minutes)")
+            self._json(200, {"ok": True, "message": "Check the JHive server terminal for your one-time sign-in code."})
+            return
+
+        if self.path == "/api/admin-verify":
+            payload = self._read_json()
+            email = str(payload.get("email", "")).strip().lower() if payload else ""
+            code = str(payload.get("code", "")).strip() if payload else ""
+            now = time.time()
+            with self.session_lock:
+                challenge = self.admin_codes.get(email)
+                if email != ADMIN_EMAIL or challenge is None or challenge[1] <= now or challenge[2] >= 5:
+                    self.admin_codes.pop(email, None)
+                    valid = False
+                else:
+                    valid = hmac.compare_digest(code, challenge[0])
+                    if not valid:
+                        self.admin_codes[email] = (challenge[0], challenge[1], challenge[2] + 1, challenge[3])
+                    else:
+                        self.admin_codes.pop(email, None)
+            if not valid:
+                self._json(401, {"error": "That code is invalid or expired."})
+                return
+            self._json(200, {"ok": True, "email": email}, {"Set-Cookie": self._start_session(email)})
             return
 
         if self.path not in {"/api/login", "/api/register"}:
@@ -150,6 +204,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json(400, {"error": "Enter a valid email address."})
             return
         if self.path == "/api/register":
+            if email == ADMIN_EMAIL:
+                self._json(403, {"error": "Use administrator sign-in for this account."})
+                return
             if len(password) < 12:
                 self._json(400, {"error": "Use a password with at least 12 characters."})
                 return
@@ -166,6 +223,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json(409, {"error": "An account already exists for that email."})
                 return
         else:
+            if email == ADMIN_EMAIL:
+                self._json(401, {"error": "Use administrator sign-in for this account."})
+                return
             with self._database() as connection:
                 row = connection.execute(
                     "SELECT salt, password_hash FROM users WHERE email = ?", (email,)

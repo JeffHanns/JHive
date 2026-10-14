@@ -60,6 +60,6 @@ jhive-dashboard
 
 Then open [http://127.0.0.1:8765](http://127.0.0.1:8765). Stop the server with `Ctrl+C`. In VS Code, you can also run `python -m jhive.web` in the integrated terminal.
 
-The app opens at a local sign-in page. Create an account on first use; passwords must be at least 12 characters. Account records and salted password hashes are stored locally in `~/.jhive/accounts.sqlite3`. Login sessions expire after 12 hours and when the server stops. The server binds to `127.0.0.1` by default.
+The app opens at a local sign-in page. Member accounts use passwords of at least 12 characters. The designated super-administrator is `jeffhanns.cilzikmusic@gmail.com`; use **Administrator sign-in** to request a one-time code, then read it in the terminal running JHive. Codes expire after five minutes and are limited to five attempts. This local terminal code is passwordless for the administrator, but it is not email delivery or verification; the server binds to `127.0.0.1` by default, so the terminal owner controls administrator access. Account records and salted password hashes are stored locally in `~/.jhive/accounts.sqlite3`. Login sessions expire after 12 hours and when the server stops.
 
 The dashboard is currently a paper-account interface preview. Replace its fixed portfolio, watchlist, chart, and strategy figures with account-specific data before using it to guide decisions. No broker integration or order placement is implemented.
