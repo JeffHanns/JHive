@@ -1,38 +1,37 @@
 # Project status
 
-## Current milestone
+Last verified: 2026-10-15
 
-Milestone 1: project foundation and GitHub integration.
+## Current release scope
 
-## Completed
+JHive is a local research-interface prototype. The first engine slice is forex, free historical files, and simulated paper research only. There is no live quote feed, broker connection, or order-submission code.
 
-- Verified `/Volumes/Untitled` is mounted and `Jeff Hanns/Code` exists.
-- Confirmed neither JHive folder existed before setup.
-- Created the outer container and inner application/repository directories.
-- Initialized Git in the inner directory on `main` and configured `origin` to `https://github.com/JeffHanns/JHive.git`.
-- Added Python packaging metadata, secret-protecting ignore rules, README, development plan, and a safe startup entry point.
-- Built the official Python 3.10.22 source release under `~/.local/opt/python-3.10.22` and created the project `.venv`.
-- Installed the declared `dev`, `data`, `api`, and `database` dependency groups.
-- Opened the inner JHive folder in VS Code; Source Control recognized `main` and the pending changes.
-- Authenticated VS Code to the GitHub account `JeffHanns`.
+## Built and checked
 
-## In progress
+- Python package and dashboard server, with local account creation, password sign-in, administrator password/code sign-in, and optional OAuth/email integrations that require local provider configuration.
+- Dark/light dashboard, profile settings and paper-account presentation. Existing portfolio figures and chart ranges are presentation samples; they are not generated from a live account or verified performance.
+- An offline reader for HistData generic ASCII minute bars, including timestamp order, positive-price, finite-number, and OHLC-range validation.
+- A deterministic long-only simple moving-average crossover simulation. Signals are based on completed bars, entries and exits fill at the next bar open, costs are configurable in basis points per side, and an open position is marked out at end of data.
+- Automated checks for the starter command, research data/simulation, and HTTP account/auth routes. The app supports `JHIVE_DATA_DIR` as an explicit local database-path override for isolated tests and local setups.
 
-- Correcting GitHub repository visibility. The VS Code Publish flow created `JeffHanns/JHive` as a public empty repository; no project files were pushed. GitHub settings UI became unavailable before its visibility could be changed.
-- Push the committed work only after the GitHub repository is confirmed private.
+## Not built yet
 
-## Known limitations
+- Reliable market-data download/synchronization, data-source provenance stored alongside datasets, and coverage/gap diagnostics.
+- Walk-forward or holdout evaluation, benchmark comparisons, strategy search controls, and robust uncertainty reporting.
+- Portfolio-level allocation, currency conversion, leverage/margin, realistic spread/slippage models, and durable paper-account trade records.
+- Production deployment, centralized authentication, account recovery, phone/SMS sign-in, configured identity providers, and multi-user data isolation review.
+- Live trading. It is outside this release scope.
 
-- The system Python remains 3.9.6. JHive uses its `.venv` based on Python 3.10.22 installed in the user-local tools directory. Python 3.10 reached end of life on 2026-10-01 and receives no further security updates.
-- GitHub CLI (`gh`) is not installed. No global Git name/email is configured.
-- The VS Code Publish operation created an empty public GitHub repository. It must be changed to private before any source files are pushed.
-- The application currently only has a safe startup message. No market data, model, broker integration, forecast, backtest, or paper trading features exist.
+## Data notes
 
-## Tests executed
+The initial reader accepts manually downloaded HistData generic ASCII M1 files. The provider says these are free historical files and documents timestamps as EST without daylight-saving adjustment; the reader preserves these as naive source timestamps and does not relabel them UTC. The provider also says it does not warrant the free data. Inspect source and coverage before relying on a result. See [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) and [DATA_AND_RESEARCH.md](DATA_AND_RESEARCH.md).
 
-- Filesystem, Git version, Python version, and VS Code installation/workspace checks.
-- The startup command was executed successfully with `PYTHONPATH=src python3 -m jhive.main`. The new pytest smoke test has not been run because pytest is not installed.
+## Backup and repository status
 
-## Next action
+GitHub `JeffHanns/JHive` is the shared source history. A separate local working copy and dated pre-reconciliation backups are kept under `~/Documents/Codex/JHive-work` and `~/Documents/Codex/JHive-Backups`. GitHub contains only committed and successfully pushed work; local `.env`, account database, virtual environment, and downloaded data are excluded. Keep at least one backup on a different physical device from the project drive.
 
-In GitHub, open `JeffHanns/JHive` → Settings → General → Danger Zone → Change repository visibility → Make private. Verify the Private badge before pushing the local commits. Consider moving the project to a supported Python release after checking compatibility.
+The project was created on an external volume. If that volume is not mounted or refuses writes, do not assume local edits reached it. Check `git status`, `git log`, and the repository's GitHub commit before continuing.
+
+## Verification
+
+Run the suite from the project root with `python -m pytest`. The last run in this restricted desktop environment reported 10 passed and 6 skipped: local HTTP auth tests are included but skipped because the sandbox denied binding a loopback test server. Run them in a normal local/CI environment to verify those routes. Targeted Ruff checks for the new research module and tests passed; full-project Ruff still reports older findings in `web.py` and `main.py`. Passing code tests does not validate a vendor's prices or establish profitability.
