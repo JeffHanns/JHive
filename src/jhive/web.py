@@ -80,7 +80,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
     @staticmethod
     @contextmanager
     def _database() -> Iterator[sqlite3.Connection]:
-        data_dir = Path.home() / ".jhive"
+        data_dir = Path(DashboardHandler._setting("JHIVE_DATA_DIR", str(Path.home() / ".jhive")))
         data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         try:
             data_dir.chmod(0o700)

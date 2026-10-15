@@ -12,7 +12,7 @@ JHive is a local research-interface prototype. The first engine slice is forex, 
 - Dark/light dashboard, profile settings and paper-account presentation. Existing portfolio figures and chart ranges are presentation samples; they are not generated from a live account or verified performance.
 - An offline reader for HistData generic ASCII minute bars, including timestamp order, positive-price, finite-number, and OHLC-range validation.
 - A deterministic long-only simple moving-average crossover simulation. Signals are based on completed bars, entries and exits fill at the next bar open, costs are configurable in basis points per side, and an open position is marked out at end of data.
-- Automated checks for the starter command and the first research-engine data and simulation behaviors.
+- Automated checks for the starter command, research data/simulation, and HTTP account/auth routes. The app supports `JHIVE_DATA_DIR` as an explicit local database-path override for isolated tests and local setups.
 
 ## Not built yet
 
@@ -34,4 +34,4 @@ The project was created on an external volume. If that volume is not mounted or 
 
 ## Verification
 
-Run the suite from the project root with `python -m pytest`. At the time this record is published, the suite covers the starter command plus CSV validation and deterministic SMA simulation. A green test suite does not validate the quality of a data vendor's prices or establish profitability.
+Run the suite from the project root with `python -m pytest`. The last run in this restricted desktop environment reported 10 passed and 6 skipped: local HTTP auth tests are included but skipped because the sandbox denied binding a loopback test server. Run them in a normal local/CI environment to verify those routes. Targeted Ruff checks for the new research module and tests passed; full-project Ruff still reports older findings in `web.py` and `main.py`. Passing code tests does not validate a vendor's prices or establish profitability.
