@@ -439,20 +439,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if payload is None:
             self._json(400, {"error": "Invalid request."})
             return
-        email = str(payload.get("email", "")).strip().lower()
+        identifier = str(payload.get("email", payload.get("identifier", ""))).strip()
+        email = identifier.lower()
         password = str(payload.get("password", ""))
         display_name = str(payload.get("display_name", "")).strip()
-        if len(email) > 254 or "@" not in email or email.startswith("@") or email.endswith("@"):
-            self._json(400, {"error": "Enter a valid email address."})
+        is_email = len(email) <= 254 and "@" in email and not email.startswith("@") and not email.endswith("@") and "." in email.rsplit("@", 1)[-1]
+        phone_digits = "".join(character for character in identifier if character.isdigit())
+        is_phone = (identifier.startswith("+") or identifier[:2] == "00") and len(phone_digits) in range(7, 16) and all(character.isdigit() or character in "+ ()-" for character in identifier)
+        if is_phone:
+            email = "+" + phone_digits[2:] if identifier.startswith("00") else "+" + phone_digits
+        if len(identifier) > 254 or not (is_email or is_phone):
+            self._json(400, {"error": "Enter a valid email address or phone number with country code."})
             return
         if self.path == "/api/register":
             if email == ADMIN_EMAIL:
                 self._json(403, {"error": "Use administrator sign-in for this account."})
                 return
-            if len(password) < 12:
-                self._json(400, {"error": "Use a password with at least 12 characters."})
+            if not 12 <= len(password) <= 128:
+                self._json(400, {"error": "Use a password between 12 and 128 characters."})
                 return
-            if display_name and not 2 <= len(display_name) <= 60:
+            if not 2 <= len(display_name) <= 60:
                 self._json(400, {"error": "Display name must be between 2 and 60 characters."})
                 return
             salt = secrets.token_bytes(16)
@@ -470,7 +476,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         )
                     connection.commit()
             except sqlite3.IntegrityError:
-                self._json(409, {"error": "An account already exists for that email."})
+                self._json(409, {"error": "An account already exists for that email or phone number."})
                 return
         else:
             with self._database() as connection:
@@ -478,11 +484,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "SELECT salt, password_hash FROM users WHERE email = ?", (email,)
                 ).fetchone()
             if row is None:
-                self._json(401, {"error": "Email or password is incorrect."})
+                self._json(401, {"error": "Email/phone or password is incorrect."})
                 return
             candidate = hashlib.pbkdf2_hmac("sha256", password.encode(), row[0], 310_000)
             if not hmac.compare_digest(candidate, row[1]):
-                self._json(401, {"error": "Email or password is incorrect."})
+                self._json(401, {"error": "Email/phone or password is incorrect."})
                 return
         self._json(200, {"ok": True, "email": email}, {"Set-Cookie": self._start_session(email)})
 
