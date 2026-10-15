@@ -281,10 +281,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if self.path == "/jhive-logo.png":
             self._serve_file("jhive-logo.png", "image/png")
             return
-        if self.path == "/favicon.png":
+        if parsed.path == "/favicon.png":
             self._serve_file("favicon.png", "image/png")
             return
-        if self.path == "/favicon.ico":
+        if parsed.path == "/favicon.ico":
             self._serve_file("favicon.png", "image/png")
             return
         else:
