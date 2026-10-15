@@ -445,11 +445,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
         display_name = str(payload.get("display_name", "")).strip()
         is_email = len(email) <= 254 and "@" in email and not email.startswith("@") and not email.endswith("@") and "." in email.rsplit("@", 1)[-1]
         phone_digits = "".join(character for character in identifier if character.isdigit())
-        is_phone = (identifier.startswith("+") or identifier[:2] == "00") and len(phone_digits) in range(7, 16) and all(character.isdigit() or character in "+ ()-" for character in identifier)
+        phone_chars_valid = all(character.isdigit() or character in "+ ()-" for character in identifier)
+        local_uganda_phone = phone_chars_valid and len(phone_digits) == 10 and phone_digits.startswith("0")
+        international_phone = phone_chars_valid and len(phone_digits) in range(7, 16) and (identifier.startswith("+") or identifier[:2] == "00" or phone_digits.startswith("256"))
+        is_phone = local_uganda_phone or international_phone
         if is_phone:
-            email = "+" + phone_digits[2:] if identifier.startswith("00") else "+" + phone_digits
+            if local_uganda_phone:
+                email = "+256" + phone_digits[1:]
+            elif identifier.startswith("00"):
+                email = "+" + phone_digits[2:]
+            else:
+                email = "+" + phone_digits
         if len(identifier) > 254 or not (is_email or is_phone):
-            self._json(400, {"error": "Enter a valid email address or phone number with country code."})
+            self._json(400, {"error": "Enter a valid email or phone number. For a Ugandan number, enter 07… or +256… ."})
             return
         if self.path == "/api/register":
             if email == ADMIN_EMAIL:
